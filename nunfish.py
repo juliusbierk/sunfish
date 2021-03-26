@@ -277,147 +277,149 @@ class Searcher:
         self.tp_score = {}
         self.tp_move = {}
         self.history = set()
-        self.nodes = 0
-
-    def bound(self, pos, gamma, depth, root=True):
-        """ returns r where
-                s(pos) <= r < gamma    if gamma > s(pos)
-                gamma <= r <= s(pos)   if gamma <= s(pos)"""
-        self.nodes += 1
-
-        # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
-        # calmness, and from this point on there is no difference in behaviour depending on
-        # depth, so so there is no reason to keep different depths in the transposition table.
-        depth = max(depth, 0)
-
-        # Sunfish is a king-capture engine, so we should always check if we
-        # still have a king. Notice since this is the only termination check,
-        # the remaining code has to be comfortable with being mated, stalemated
-        # or able to capture the opponent king.
-        if pos.score <= -MATE_LOWER:
-            return -MATE_UPPER
-
-        # We detect 3-fold captures by comparing against previously
-        # _actually played_ positions.
-        # Note that we need to do this before we look in the table, as the
-        # position may have been previously reached with a different score.
-        # This is what prevents a search instability.
-        # FIXME: This is not true, since other positions will be affected by
-        # the new values for all the drawn positions.
-        if DRAW_TEST:
-            if not root and pos.str in self.history:
-                return 0
-
-        # Look in the table if we have already searched this position before.
-        # We also need to be sure, that the stored search was over the same
-        # nodes as the current search.
-        entry = self.tp_score.get(str((pos.str, depth, root)), Entry(-MATE_UPPER, MATE_UPPER))
-        if entry.lower >= gamma and (not root or self.tp_move.get(pos.str) is not None):
-            return entry.lower
-        if entry.upper < gamma:
-            return entry.upper
-
-        # Here extensions may be added
-        # Such as 'if in_check: depth += 1'
-
-        # Generator of moves to search in order.
-        # This allows us to define the moves, but only calculate them if needed.
-        def moves():
-            # First try not moving at all. We only do this if there is at least one major
-            # piece left on the board, since otherwise zugzwangs are too dangerous.
-            if depth > 0 and not root and any(c in pos.board for c in 'RBNQ'):
-                yield None, -self.bound(pos.nullmove(), 1-gamma, depth-3, root=False)
-            # For QSearch we have a different kind of null-move, namely we can just stop
-            # and not capture anything else.
-            if depth == 0:
-                yield None, pos.score
-            # Then killer move. We search it twice, but the tp will fix things for us.
-            # Note, we don't have to check for legality, since we've already done it
-            # before. Also note that in QS the killer must be a capture, otherwise we
-            # will be non deterministic.
-            killer = self.tp_move.get(pos.str)
-            if killer and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
-                yield killer, -self.bound(pos.move(killer, pst), 1-gamma, depth-1, root=False)
-            # Then all the other moves
-
-            def f(m):
-                return pos.value(m, pst)
-            for move in sorted(pos.gen_moves(directions), key=f, reverse=True):
-            #for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
-                # If depth == 0 we only try moves with high intrinsic score (captures and
-                # promotions). Otherwise we do all moves.
-                if depth > 0 or pos.value(move, pst) >= QS_LIMIT:
-                    yield move, -self.bound(pos.move(move, pst), 1-gamma, depth-1, root=False)
-
-        # Run through the moves, shortcutting when possible
-        best = -MATE_UPPER
-        for move, score in moves():
-            best = max(best, score)
-            if best >= gamma:
-                # Clear before setting, so we always have a value
-                if len(self.tp_move) > TABLE_SIZE: self.tp_move.clear()
-                # Save the move for pv construction and killer heuristic
-                self.tp_move[pos.str] = move
-                break
-
-        # Stalemate checking is a bit tricky: Say we failed low, because
-        # we can't (legally) move and so the (real) score is -infty.
-        # At the next depth we are allowed to just return r, -infty <= r < gamma,
-        # which is normally fine.
-        # However, what if gamma = -10 and we don't have any legal moves?
-        # Then the score is actaully a draw and we should fail high!
-        # Thus, if best < gamma and best < 0 we need to double check what we are doing.
-        # This doesn't prevent sunfish from making a move that results in stalemate,
-        # but only if depth == 1, so that's probably fair enough.
-        # (Btw, at depth 1 we can also mate without realizing.)
-        if best < gamma and best < 0 and depth > 0:
-            is_dead = lambda pos: any(pos.value(m, pst) >= MATE_LOWER for m in pos.gen_moves(directions))
-            if all(is_dead(pos.move(m, pst)) for m in pos.gen_moves(directions)):
-                in_check = is_dead(pos.nullmove())
-                best = -MATE_UPPER if in_check else 0
-
-        # Clear before setting, so we always have a value
-        if len(self.tp_score) > TABLE_SIZE: self.tp_score.clear()
-        # Table part 2
-        if best >= gamma:
-            self.tp_score[str((pos.str, depth, root))] = Entry(best, entry.upper)
-        if best < gamma:
-            self.tp_score[str((pos.str, depth, root))] = Entry(entry.lower, best)
-
-        return best
 
     def search(self, pos, history=None):
-        if history is None:
-            history = {}
+        yield from searcher_search(pos, history, self.tp_score, self.tp_move)
 
-        """ Iterative deepening MTD-bi search """
-        self.nodes = 0
-        if DRAW_TEST:
-            self.history = history
-            # print('# Clearing table due to new history')
-            self.tp_score.clear()
 
-        # In finished games, we could potentially go far enough to cause a recursion
-        # limit exception. Hence we bound the ply.
-        for depth in range(1, 1000):
-            # The inner loop is a binary search on the score of the position.
-            # Inv: lower <= score <= upper
-            # 'while lower != upper' would work, but play tests show a margin of 20 plays
-            # better.
-            lower, upper = -MATE_UPPER, MATE_UPPER
-            while lower < upper - EVAL_ROUGHNESS:
-                gamma = (lower+upper+1)//2
-                score = self.bound(pos, gamma, depth)
-                if score >= gamma:
-                    lower = score
-                if score < gamma:
-                    upper = score
-            # We want to make sure the move to play hasn't been kicked out of the table,
-            # So we make another call that must always fail high and thus produce a move.
-            self.bound(pos, lower, depth)
-            # If the game hasn't finished we can retrieve our move from the
-            # transposition table.
-            yield depth, self.tp_move.get(pos.str), self.tp_score[str((pos.str, depth, True))].lower
+
+def searcher_search(pos, history, tp_score, tp_move):
+    """ Iterative deepening MTD-bi search """
+    if history is None:
+        history = {}
+
+    if DRAW_TEST:
+        # print('# Clearing table due to new history')
+        tp_score.clear()
+
+    # In finished games, we could potentially go far enough to cause a recursion
+    # limit exception. Hence we bound the ply.
+    for depth in range(1, 1000):
+        # The inner loop is a binary search on the score of the position.
+        # Inv: lower <= score <= upper
+        # 'while lower != upper' would work, but play tests show a margin of 20 plays
+        # better.
+        lower, upper = -MATE_UPPER, MATE_UPPER
+        while lower < upper - EVAL_ROUGHNESS:
+            gamma = (lower+upper+1)//2
+            score = searcher_bound(pos, gamma, depth, history, tp_move, tp_score)
+            if score >= gamma:
+                lower = score
+            if score < gamma:
+                upper = score
+        # We want to make sure the move to play hasn't been kicked out of the table,
+        # So we make another call that must always fail high and thus produce a move.
+        searcher_bound(pos, lower, depth, history, tp_move, tp_score)
+        # If the game hasn't finished we can retrieve our move from the
+        # transposition table.
+        yield depth, tp_move.get(pos.str), tp_score[str((pos.str, depth, True))].lower
+
+
+def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
+    """ returns r where
+            s(pos) <= r < gamma    if gamma > s(pos)
+            gamma <= r <= s(pos)   if gamma <= s(pos)"""
+
+    # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
+    # calmness, and from this point on there is no difference in behaviour depending on
+    # depth, so so there is no reason to keep different depths in the transposition table.
+    depth = max(depth, 0)
+
+    # Sunfish is a king-capture engine, so we should always check if we
+    # still have a king. Notice since this is the only termination check,
+    # the remaining code has to be comfortable with being mated, stalemated
+    # or able to capture the opponent king.
+    if pos.score <= -MATE_LOWER:
+        return -MATE_UPPER
+
+    # We detect 3-fold captures by comparing against previously
+    # _actually played_ positions.
+    # Note that we need to do this before we look in the table, as the
+    # position may have been previously reached with a different score.
+    # This is what prevents a search instability.
+    # FIXME: This is not true, since other positions will be affected by
+    # the new values for all the drawn positions.
+    if DRAW_TEST:
+        if not root and pos.str in history:
+            return 0
+
+    # Look in the table if we have already searched this position before.
+    # We also need to be sure, that the stored search was over the same
+    # nodes as the current search.
+    entry = tp_score.get(str((pos.str, depth, root)), Entry(-MATE_UPPER, MATE_UPPER))
+    if entry.lower >= gamma and (not root or tp_move.get(pos.str) is not None):
+        return entry.lower
+    if entry.upper < gamma:
+        return entry.upper
+
+    # Here extensions may be added
+    # Such as 'if in_check: depth += 1'
+
+    # Generator of moves to search in order.
+    # This allows us to define the moves, but only calculate them if needed.
+    def moves():
+        # First try not moving at all. We only do this if there is at least one major
+        # piece left on the board, since otherwise zugzwangs are too dangerous.
+        if depth > 0 and not root and any(c in pos.board for c in 'RBNQ'):
+            yield None, -searcher_bound(pos.nullmove(), 1-gamma, depth-3, history, tp_move, tp_score, False)
+        # For QSearch we have a different kind of null-move, namely we can just stop
+        # and not capture anything else.
+        if depth == 0:
+            yield None, pos.score
+        # Then killer move. We search it twice, but the tp will fix things for us.
+        # Note, we don't have to check for legality, since we've already done it
+        # before. Also note that in QS the killer must be a capture, otherwise we
+        # will be non deterministic.
+        killer = tp_move.get(pos.str)
+        if killer and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
+            yield killer, -searcher_bound(pos.move(killer, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
+        # Then all the other moves
+
+        def f(m):
+            return pos.value(m, pst)
+        for move in sorted(pos.gen_moves(directions), key=f, reverse=True):
+            #for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
+            # If depth == 0 we only try moves with high intrinsic score (captures and
+            # promotions). Otherwise we do all moves.
+            if depth > 0 or pos.value(move, pst) >= QS_LIMIT:
+                yield move, -searcher_bound(pos.move(move, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
+
+    # Run through the moves, shortcutting when possible
+    best = -MATE_UPPER
+    for move, score in moves():
+        best = max(best, score)
+        if best >= gamma:
+            # Clear before setting, so we always have a value
+            if len(tp_move) > TABLE_SIZE: tp_move.clear()
+            # Save the move for pv construction and killer heuristic
+            tp_move[pos.str] = move
+            break
+
+    # Stalemate checking is a bit tricky: Say we failed low, because
+    # we can't (legally) move and so the (real) score is -infty.
+    # At the next depth we are allowed to just return r, -infty <= r < gamma,
+    # which is normally fine.
+    # However, what if gamma = -10 and we don't have any legal moves?
+    # Then the score is actaully a draw and we should fail high!
+    # Thus, if best < gamma and best < 0 we need to double check what we are doing.
+    # This doesn't prevent sunfish from making a move that results in stalemate,
+    # but only if depth == 1, so that's probably fair enough.
+    # (Btw, at depth 1 we can also mate without realizing.)
+    if best < gamma and best < 0 and depth > 0:
+        is_dead = lambda pos: any(pos.value(m, pst) >= MATE_LOWER for m in pos.gen_moves(directions))
+        if all(is_dead(pos.move(m, pst)) for m in pos.gen_moves(directions)):
+            in_check = is_dead(pos.nullmove())
+            best = -MATE_UPPER if in_check else 0
+
+    # Clear before setting, so we always have a value
+    if len(tp_score) > TABLE_SIZE: tp_score.clear()
+    # Table part 2
+    if best >= gamma:
+        tp_score[str((pos.str, depth, root))] = Entry(best, entry.upper)
+    if best < gamma:
+        tp_score[str((pos.str, depth, root))] = Entry(entry.lower, best)
+
+    return best
 
 
 ###############################################################################
