@@ -290,6 +290,13 @@ class Searcher:
         yield from searcher_search(pos, history, self.tp_score, self.tp_move)
 
 
+@njit
+def tup_to_str(tup):
+    if tup[2]:
+        return str(tup[0]) + str(tup[1]) + '+1'
+    else:
+        return str(tup[0]) + str(tup[1]) + '-1'
+
 
 def searcher_search(pos, history, tp_score, tp_move):
     """ Iterative deepening MTD-bi search """
@@ -310,17 +317,17 @@ def searcher_search(pos, history, tp_score, tp_move):
         lower, upper = -MATE_UPPER, MATE_UPPER
         while lower < upper - EVAL_ROUGHNESS:
             gamma = (lower+upper+1)//2
-            score = searcher_bound(pos, gamma, depth, history, tp_move, tp_score)
+            score = searcher_bound(pos, gamma, depth, history, tp_move, tp_score, pst, directions)
             if score >= gamma:
                 lower = score
             if score < gamma:
                 upper = score
         # We want to make sure the move to play hasn't been kicked out of the table,
         # So we make another call that must always fail high and thus produce a move.
-        searcher_bound(pos, lower, depth, history, tp_move, tp_score)
+        searcher_bound(pos, lower, depth, history, tp_move, tp_score, pst, directions)
         # If the game hasn't finished we can retrieve our move from the
         # transposition table.
-        yield depth, tp_move.get(pos.str, NoneMove), tp_score[str((pos.str, depth, True))].lower
+        yield depth, tp_move.get(pos.str, NoneMove), tp_score[tup_to_str((pos.str, depth, True))].lower
 
 
 @njit
@@ -349,11 +356,12 @@ def all_dead(pos, pst, directions):
 
 # Generator of moves to search in order.
 # This allows us to define the moves, but only calculate them if needed.
-def moves(pos, depth, root, gamma, history, tp_move, tp_score):
+@njit
+def moves(pos, depth, root, gamma, history, tp_move, tp_score, pst, directions):
     # First try not moving at all. We only do this if there is at least one major
     # piece left on the board, since otherwise zugzwangs are too dangerous.
     if depth > 0 and not root and check_if_RBNQ(pos.board):
-        yield NoneMove, -searcher_bound(pos.nullmove(), 1-gamma, depth-3, history, tp_move, tp_score, False)
+        yield NoneMove, -searcher_bound(pos.nullmove(), 1-gamma, depth-3, history, tp_move, tp_score, pst, directions, False)
     # For QSearch we have a different kind of null-move, namely we can just stop
     # and not capture anything else.
     if depth == 0:
@@ -363,24 +371,27 @@ def moves(pos, depth, root, gamma, history, tp_move, tp_score):
     # before. Also note that in QS the killer must be a capture, otherwise we
     # will be non deterministic.
 
-    killer = tp_move.get(pos.str, NoneMove)
-    if killer != NoneMove and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
-        yield killer, -searcher_bound(pos.move(killer, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
+    if pos.str in tp_move:
+        killer = tp_move[pos.str]
+    else:
+        killer = NoneMove
+    if not (killer[0] == NoneMove[0] and killer[1] == NoneMove[1]) and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
+        yield killer, -searcher_bound(pos.move(killer, pst), 1-gamma, depth-1, history, tp_move, tp_score, pst, directions, False)
 
     # Then all the other moves
     remaining_moves = list(pos.gen_moves(directions))
-    def f(m):
-        return pos.value(m, pst)
-    for move in sorted(remaining_moves, key=f, reverse=True):
-    # for move in remaining_moves:
+    # def f(m):
+    #     return pos.value(m, pst)
+    # for move in sorted(remaining_moves, key=f, reverse=True):
+    for move in remaining_moves:
         # If depth == 0 we only try moves with high intrinsic score (captures and
         # promotions). Otherwise we do all moves.
         if depth > 0 or pos.value(move, pst) >= QS_LIMIT:
-            yield move, -searcher_bound(pos.move(move, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
+            yield move, -searcher_bound(pos.move(move, pst), 1-gamma, depth-1, history, tp_move, tp_score, pst, directions, False)
 
 
-
-def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
+@njit
+def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, pst, directions, root=True):
     """ returns r where
             s(pos) <= r < gamma    if gamma > s(pos)
             gamma <= r <= s(pos)   if gamma <= s(pos)"""
@@ -412,7 +423,7 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
     # Look in the table if we have already searched this position before.
     # We also need to be sure, that the stored search was over the same
     # nodes as the current search.
-    x = str((pos.str, depth, root))
+    x = tup_to_str((pos.str, depth, root))
     if x in tp_score:
         entry = tp_score[x]
     else:
@@ -427,7 +438,7 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
 
     # Run through the moves, shortcutting when possible
     best = -MATE_UPPER
-    for move, score in moves(pos, depth, root, gamma, history, tp_move, tp_score):
+    for move, score in moves(pos, depth, root, gamma, history, tp_move, tp_score, pst, directions):
         best = max(best, score)
         if best >= gamma:
             # Clear before setting, so we always have a value
@@ -455,9 +466,9 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
     if len(tp_score) > TABLE_SIZE: tp_score.clear()
     # Table part 2
     if best >= gamma:
-        tp_score[str((pos.str, depth, root))] = Entry(best, entry.upper)
+        tp_score[tup_to_str((pos.str, depth, root))] = Entry(best, entry.upper)
     if best < gamma:
-        tp_score[str((pos.str, depth, root))] = Entry(entry.lower, best)
+        tp_score[tup_to_str((pos.str, depth, root))] = Entry(entry.lower, best)
 
     return best
 
@@ -488,7 +499,11 @@ def print_pos(pos):
 
 def timeit():
     pos = Position(initial, 0, (True,True), (True,True), 0, 0)
-    hist = {pos.str: 1}
+    hist = typed.Dict.empty(
+        key_type=types.unicode_type,
+        value_type=types.int64,
+    )
+    hist[pos.str] = 1
     searcher = Searcher()
 
     # Jit:
