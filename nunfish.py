@@ -281,7 +281,10 @@ class Searcher:
             key_type=types.unicode_type,
             value_type=nb.typeof(NoneMove),
         )
-        self.history = set()
+        self.history = typed.Dict.empty(
+            key_type=types.unicode_type,
+            value_type=types.int64,
+        )
 
     def search(self, pos, history=None):
         yield from searcher_search(pos, history, self.tp_score, self.tp_move)
@@ -320,6 +323,7 @@ def searcher_search(pos, history, tp_score, tp_move):
         yield depth, tp_move.get(pos.str, NoneMove), tp_score[str((pos.str, depth, True))].lower
 
 
+@njit
 def check_if_RBNQ(board):
     for c in 'RBQN':
         if c in board:
@@ -327,6 +331,7 @@ def check_if_RBNQ(board):
     return False
 
 
+@njit
 def is_dead(pos, pst, directions):
     for m in pos.gen_moves(directions):
         if pos.value(m, pst) >= MATE_LOWER:
@@ -334,6 +339,7 @@ def is_dead(pos, pst, directions):
     return False
 
 
+@njit
 def all_dead(pos, pst, directions):
     for m in pos.gen_moves(directions):
         if not is_dead(pos.move(m, pst), pst, directions):
@@ -366,11 +372,12 @@ def moves(pos, depth, root, gamma, history, tp_move, tp_score):
     def f(m):
         return pos.value(m, pst)
     for move in sorted(remaining_moves, key=f, reverse=True):
-        #for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
+    # for move in remaining_moves:
         # If depth == 0 we only try moves with high intrinsic score (captures and
         # promotions). Otherwise we do all moves.
         if depth > 0 or pos.value(move, pst) >= QS_LIMIT:
             yield move, -searcher_bound(pos.move(move, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
+
 
 
 def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
@@ -381,7 +388,8 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
     # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
     # calmness, and from this point on there is no difference in behaviour depending on
     # depth, so so there is no reason to keep different depths in the transposition table.
-    depth = max(depth, 0)
+    if depth < 0:
+        depth = 0
 
     # Sunfish is a king-capture engine, so we should always check if we
     # still have a king. Notice since this is the only termination check,
