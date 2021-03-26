@@ -122,8 +122,8 @@ directions['K'] = np.array([N, E, S, W, N+E, S+E, S+W, N+W], dtype='i8')
 # 8 queens up, but we got the king, we still exceed MATE_VALUE.
 # When a MATE is detected, we'll set the score to MATE_UPPER - plies to get there
 # E.g. Mate in 3 will be MATE_UPPER - 6
-MATE_LOWER = piece['K'] - 10*piece['Q']
-MATE_UPPER = piece['K'] + 10*piece['Q']
+MATE_LOWER = types.int64(piece['K'] - 10*piece['Q'])
+MATE_UPPER = types.int64(piece['K'] + 10*piece['Q'])
 
 # The table size is the maximum number of elements in the transposition table.
 TABLE_SIZE = 1e7
@@ -271,11 +271,18 @@ class Position:
 
 # lower <= s(pos) <= upper
 Entry = namedtuple('Entry', 'lower upper')
+NoneMove = (0, 0)
 
 class Searcher:
     def __init__(self):
-        self.tp_score = {}
-        self.tp_move = {}
+        self.tp_score = typed.Dict.empty(
+            key_type=types.unicode_type,
+            value_type=nb.typeof(Entry(0, 0)),
+        )
+        self.tp_move = typed.Dict.empty(
+            key_type=types.unicode_type,
+            value_type=nb.typeof(NoneMove),
+        )
         self.history = set()
 
     def search(self, pos, history=None):
@@ -312,7 +319,7 @@ def searcher_search(pos, history, tp_score, tp_move):
         searcher_bound(pos, lower, depth, history, tp_move, tp_score)
         # If the game hasn't finished we can retrieve our move from the
         # transposition table.
-        yield depth, tp_move.get(pos.str), tp_score[str((pos.str, depth, True))].lower
+        yield depth, tp_move.get(pos.str, NoneMove), tp_score[str((pos.str, depth, True))].lower
 
 
 def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
@@ -346,8 +353,12 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
     # Look in the table if we have already searched this position before.
     # We also need to be sure, that the stored search was over the same
     # nodes as the current search.
-    entry = tp_score.get(str((pos.str, depth, root)), Entry(-MATE_UPPER, MATE_UPPER))
-    if entry.lower >= gamma and (not root or tp_move.get(pos.str) is not None):
+    x = str((pos.str, depth, root))
+    if x in tp_score:
+        entry = tp_score[x]
+    else:
+        entry = Entry(-MATE_UPPER, MATE_UPPER)
+    if entry.lower >= gamma and (not root or tp_move.get(pos.str, NoneMove) != NoneMove):
         return entry.lower
     if entry.upper < gamma:
         return entry.upper
@@ -361,17 +372,18 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
         # First try not moving at all. We only do this if there is at least one major
         # piece left on the board, since otherwise zugzwangs are too dangerous.
         if depth > 0 and not root and any(c in pos.board for c in 'RBNQ'):
-            yield None, -searcher_bound(pos.nullmove(), 1-gamma, depth-3, history, tp_move, tp_score, False)
+            yield NoneMove, -searcher_bound(pos.nullmove(), 1-gamma, depth-3, history, tp_move, tp_score, False)
         # For QSearch we have a different kind of null-move, namely we can just stop
         # and not capture anything else.
         if depth == 0:
-            yield None, pos.score
+            yield NoneMove, pos.score
         # Then killer move. We search it twice, but the tp will fix things for us.
         # Note, we don't have to check for legality, since we've already done it
         # before. Also note that in QS the killer must be a capture, otherwise we
         # will be non deterministic.
-        killer = tp_move.get(pos.str)
-        if killer and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
+
+        killer = tp_move.get(pos.str, NoneMove)
+        if killer != NoneMove and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
             yield killer, -searcher_bound(pos.move(killer, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
         # Then all the other moves
 
