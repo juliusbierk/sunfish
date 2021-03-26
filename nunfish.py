@@ -3,9 +3,11 @@
 
 from __future__ import print_function
 import re, sys, time
+from functools import partial
 from itertools import count
 from collections import namedtuple
 from numba import jit, njit, typed
+from numba.experimental import jitclass
 from numba.core import types
 import numba as nb
 import numpy as np
@@ -136,6 +138,14 @@ DRAW_TEST = True
 # Chess logic
 ###############################################################################
 
+@jitclass([
+    ('board', types.unicode_type),
+    ('score', types.int64),
+    ('wc', nb.typeof((1, 0))),
+    ('bc', nb.typeof((1, 0))),
+    ('ep', types.int64),
+    ('kp', types.int64)
+])
 class Position:
     """ A state of a chess game
     board -- a 120 char representation of the board
@@ -154,17 +164,21 @@ class Position:
         self.ep = int(ep)
         self.kp = int(kp)
 
-    def __repr__(self):
-        return self.board + str(self.score) + str(self.wc) + str(self.bc) + str(self.ep) + str(self.kp)
+    @property
+    def str(self):
+        return self.board + str(self.score) + str(self.wc[0]) + str(self.wc[1]) \
+               + str(self.bc[0]) + str(self.bc[1]) + str(self.ep) + str(self.kp)
 
-    def gen_moves(self):
+    def gen_moves(self, directions):
         # For each of our pieces, iterate through each possible 'ray' of moves,
         # as defined in the 'directions' map. The rays are broken e.g. by
         # captures or immediately in case of pieces such as knights.
         for i, p in enumerate(self.board):
             if not p.isupper(): continue
             for d in directions[p]:
-                for j in count(i+d, d):
+                j = i
+                while True:
+                    j += d
                     q = self.board[j]
                     # Stay inside the board, and off friendly pieces
                     if q.isspace() or q.isupper(): break
@@ -194,14 +208,14 @@ class Position:
             self.board[::-1].swapcase(), -self.score,
             self.bc, self.wc, 0, 0)
 
-    def move(self, move):
+    def move(self, move, pst):
         i, j = move
         p, q = self.board[i], self.board[j]
         put = lambda board, i, p: board[:i] + p + board[i+1:]
         # Copy variables and reset ep and kp
         board = self.board
         wc, bc, ep, kp = self.wc, self.bc, 0, 0
-        score = self.score + self.value(move)
+        score = self.score + self.value(move, pst)
         # Actual move
         board = put(board, j, board[i])
         board = put(board, i, '.')
@@ -228,7 +242,7 @@ class Position:
         # We rotate the returned position, so it's ready for the next player
         return Position(board, score, wc, bc, ep, kp).rotate()
 
-    def value(self, move):
+    def value(self, move, pst):
         i, j = move
         p, q = self.board[i], self.board[j]
         # Actual move
@@ -291,14 +305,14 @@ class Searcher:
         # FIXME: This is not true, since other positions will be affected by
         # the new values for all the drawn positions.
         if DRAW_TEST:
-            if not root and str(pos) in self.history:
+            if not root and pos.str in self.history:
                 return 0
 
         # Look in the table if we have already searched this position before.
         # We also need to be sure, that the stored search was over the same
         # nodes as the current search.
-        entry = self.tp_score.get(str((pos, depth, root)), Entry(-MATE_UPPER, MATE_UPPER))
-        if entry.lower >= gamma and (not root or self.tp_move.get(str(pos)) is not None):
+        entry = self.tp_score.get(str((pos.str, depth, root)), Entry(-MATE_UPPER, MATE_UPPER))
+        if entry.lower >= gamma and (not root or self.tp_move.get(pos.str) is not None):
             return entry.lower
         if entry.upper < gamma:
             return entry.upper
@@ -321,16 +335,19 @@ class Searcher:
             # Note, we don't have to check for legality, since we've already done it
             # before. Also note that in QS the killer must be a capture, otherwise we
             # will be non deterministic.
-            killer = self.tp_move.get(str(pos))
-            if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
-                yield killer, -self.bound(pos.move(killer), 1-gamma, depth-1, root=False)
+            killer = self.tp_move.get(pos.str)
+            if killer and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
+                yield killer, -self.bound(pos.move(killer, pst), 1-gamma, depth-1, root=False)
             # Then all the other moves
-            for move in sorted(pos.gen_moves(), key=pos.value, reverse=True):
+
+            def f(m):
+                return pos.value(m, pst)
+            for move in sorted(pos.gen_moves(directions), key=f, reverse=True):
             #for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
                 # If depth == 0 we only try moves with high intrinsic score (captures and
                 # promotions). Otherwise we do all moves.
-                if depth > 0 or pos.value(move) >= QS_LIMIT:
-                    yield move, -self.bound(pos.move(move), 1-gamma, depth-1, root=False)
+                if depth > 0 or pos.value(move, pst) >= QS_LIMIT:
+                    yield move, -self.bound(pos.move(move, pst), 1-gamma, depth-1, root=False)
 
         # Run through the moves, shortcutting when possible
         best = -MATE_UPPER
@@ -340,7 +357,7 @@ class Searcher:
                 # Clear before setting, so we always have a value
                 if len(self.tp_move) > TABLE_SIZE: self.tp_move.clear()
                 # Save the move for pv construction and killer heuristic
-                self.tp_move[str(pos)] = move
+                self.tp_move[pos.str] = move
                 break
 
         # Stalemate checking is a bit tricky: Say we failed low, because
@@ -354,8 +371,8 @@ class Searcher:
         # but only if depth == 1, so that's probably fair enough.
         # (Btw, at depth 1 we can also mate without realizing.)
         if best < gamma and best < 0 and depth > 0:
-            is_dead = lambda pos: any(pos.value(m) >= MATE_LOWER for m in pos.gen_moves())
-            if all(is_dead(pos.move(m)) for m in pos.gen_moves()):
+            is_dead = lambda pos: any(pos.value(m, pst) >= MATE_LOWER for m in pos.gen_moves(directions))
+            if all(is_dead(pos.move(m, pst)) for m in pos.gen_moves(directions)):
                 in_check = is_dead(pos.nullmove())
                 best = -MATE_UPPER if in_check else 0
 
@@ -363,9 +380,9 @@ class Searcher:
         if len(self.tp_score) > TABLE_SIZE: self.tp_score.clear()
         # Table part 2
         if best >= gamma:
-            self.tp_score[str((pos, depth, root))] = Entry(best, entry.upper)
+            self.tp_score[str((pos.str, depth, root))] = Entry(best, entry.upper)
         if best < gamma:
-            self.tp_score[str((pos, depth, root))] = Entry(entry.lower, best)
+            self.tp_score[str((pos.str, depth, root))] = Entry(entry.lower, best)
 
         return best
 
@@ -400,7 +417,7 @@ class Searcher:
             self.bound(pos, lower, depth)
             # If the game hasn't finished we can retrieve our move from the
             # transposition table.
-            yield depth, self.tp_move.get(str(pos)), self.tp_score[str((pos, depth, True))].lower
+            yield depth, self.tp_move.get(pos.str), self.tp_score[str((pos.str, depth, True))].lower
 
 
 ###############################################################################
@@ -433,7 +450,7 @@ def print_pos(pos):
 
 def timeit():
     pos = Position(initial, 0, (True,True), (True,True), 0, 0)
-    hist = {str(pos): 1}
+    hist = {pos.str: 1}
     searcher = Searcher()
 
     # Jit:
@@ -451,18 +468,21 @@ def timeit():
             break
 
         i = 0
+
         for _, move, score in searcher.search(pos, hist):
             i += 1
             if i == 2:
                 break
 
+        print(move)
         assert moves[mi] == move
         mi += 1
 
         if score == MATE_UPPER:
             break
-        pos = pos.move(move)
-        hist[str(pos)] = 1
+        pos = pos.move(move, pst)
+
+        hist[pos.str] = 1
 
     print("took", time.time() - t1)
 
