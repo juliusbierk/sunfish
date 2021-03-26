@@ -287,7 +287,7 @@ class Searcher:
         )
 
     def search(self, pos, history=None):
-        yield from searcher_search(pos, history, self.tp_score, self.tp_move)
+        yield from searcher_search(pos, history, self.tp_score, self.tp_move, pst, directions)
 
 
 @njit
@@ -298,7 +298,8 @@ def tup_to_str(tup):
         return str(tup[0]) + str(tup[1]) + '-1'
 
 
-def searcher_search(pos, history, tp_score, tp_move):
+@njit
+def searcher_search(pos, history, tp_score, tp_move, pst, directions):
     """ Iterative deepening MTD-bi search """
     if DRAW_TEST:
         # print('# Clearing table due to new history')
@@ -494,46 +495,44 @@ def print_pos(pos):
 
 
 def timeit():
-    pos = Position(initial, 0, (True,True), (True,True), 0, 0)
-    hist = typed.Dict.empty(
-        key_type=types.unicode_type,
-        value_type=types.int64,
-    )
-    hist[pos.str] = 1
-    searcher = Searcher()
+    for run in range(2):
+        if run == 0:
+            print('Run 1, with jitting:')
+        else:
+            print('Run 2, precompiled:')
 
-    # Jit:
-    i = 0
-    for _, move, score in searcher.search(pos, hist):
-        i += 1
-        if i == 2:
-            break
+        pos = Position(initial, 0, (True,True), (True,True), 0, 0)
+        hist = typed.Dict.empty(
+            key_type=types.unicode_type,
+            value_type=types.int64,
+        )
+        hist[pos.str] = 1
+        searcher = Searcher()
 
-    t1 = time.time()
-    moves = [(84, 64), (85, 65), (97, 76), (97, 76), (92, 73), (92, 73), (93, 66), (96, 63), (76, 55), (76, 64), (66, 55), (73, 54), (86, 76), (54, 46), (82, 73), (84, 74), (85, 75), (95, 51), (87, 77), (51, 84), (96, 52), (86, 76), (52, 74), (83, 73), (74, 56), (74, 63), (55, 66), (82, 62), (66, 57), (73, 62), (94, 74), (84, 83), (95, 97), (94, 96), (91, 94), (96, 97), (96, 95), (93, 82), (88, 78), (91, 94), (81, 71), (88, 78), (71, 61), (81, 71), (61, 51), (71, 61), (74, 85), (82, 73), (85, 74), (83, 72), (74, 85), (73, 82), (85, 74), (72, 74), (74, 85), (82, 73), (85, 74), (74, 85), (74, 85), (85, 86), (85, 86), (86, 68), (86, 84), (68, 38), (84, 74), (38, 37), (74, 56), (95, 75), (56, 47), (75, 74), (47, 74), (61, 51), (77, 68), (62, 51), (94, 92), (94, 92), (97, 98), (37, 38), (92, 42), (92, 42), (74, 56), (74, 75), (95, 94), (97, 88), (94, 92), (88, 98), (42, 32), (38, 56), (56, 23)]
-    mi = 0
-    while True:
-        if pos.score <= -MATE_LOWER:
-            break
-
-        i = 0
-
-        for _, move, score in searcher.search(pos, hist):
-            i += 1
-            if i == 2:
+        t1 = time.time()
+        moves = [(84, 64), (85, 65), (97, 76), (97, 76), (92, 73), (92, 73), (93, 66), (96, 63), (76, 55), (76, 64), (66, 55), (73, 54), (86, 76), (54, 46), (82, 73), (84, 74), (85, 75), (95, 51), (87, 77), (51, 84), (96, 52), (86, 76), (52, 74), (83, 73), (74, 56), (74, 63), (55, 66), (82, 62), (66, 57), (73, 62), (94, 74), (84, 83), (95, 97), (94, 96), (91, 94), (96, 97), (96, 95), (93, 82), (88, 78), (91, 94), (81, 71), (88, 78), (71, 61), (81, 71), (61, 51), (71, 61), (74, 85), (82, 73), (85, 74), (83, 72), (74, 85), (73, 82), (85, 74), (72, 74), (74, 85), (82, 73), (85, 74), (74, 85), (74, 85), (85, 86), (85, 86), (86, 68), (86, 84), (68, 38), (84, 74), (38, 37), (74, 56), (95, 75), (56, 47), (75, 74), (47, 74), (61, 51), (77, 68), (62, 51), (94, 92), (94, 92), (97, 98), (37, 38), (92, 42), (92, 42), (74, 56), (74, 75), (95, 94), (97, 88), (94, 92), (88, 98), (42, 32), (38, 56), (56, 23)]
+        mi = 0
+        while True:
+            if pos.score <= -MATE_LOWER:
                 break
 
-        print(move)
-        assert moves[mi] == move
-        mi += 1
+            i = 0
 
-        if score == MATE_UPPER:
-            break
-        pos = pos.move(move, pst)
+            for _, move, score in searcher.search(pos, hist):
+                i += 1
+                if i == 2:
+                    break
 
-        hist[pos.str] = 1
+            assert moves[mi] == move
+            mi += 1
 
-    print("took", time.time() - t1)
+            if score == MATE_UPPER:
+                break
+            pos = pos.move(move, pst)
+
+            hist[pos.str] = 1
+
+        print("took", time.time() - t1)
 
 
 if __name__ == '__main__':
