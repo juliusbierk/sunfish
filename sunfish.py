@@ -446,6 +446,28 @@ def main():
         hist.append(hist[-1].move(move))
 
 
+def timeit():
+    hist = [Position(initial, 0, (True,True), (True,True), 0, 0)]
+    searcher = Searcher()
+
+    t1 = time.time()
+    while True:
+        if hist[-1].score <= -MATE_LOWER:
+            break
+
+        i = 0
+        for _, move, score in searcher.search(hist[-1], hist):
+            i += 1
+            if i == 3:
+                break
+
+        if score == MATE_UPPER:
+            break
+        hist.append(hist[-1].move(move))
+
+
+    print("took", time.time() - t1)
+
 if __name__ == '__main__':
-    main()
+    timeit()
 
