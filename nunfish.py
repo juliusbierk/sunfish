@@ -322,6 +322,56 @@ def searcher_search(pos, history, tp_score, tp_move):
         yield depth, tp_move.get(pos.str, NoneMove), tp_score[str((pos.str, depth, True))].lower
 
 
+def check_if_RBNQ(board):
+    for c in 'RBQN':
+        if c in board:
+            return True
+    return False
+
+def is_dead(pos, pst, directions):
+    for m in pos.gen_moves(directions):
+        if pos.value(m, pst) >= MATE_LOWER:
+            return True
+    return False
+
+def all_dead(pos, pst, directions):
+    for m in pos.gen_moves(directions):
+        if not is_dead(pos.move(m, pst), pst, directions):
+            return False
+    return True
+
+
+# Generator of moves to search in order.
+# This allows us to define the moves, but only calculate them if needed.
+def moves(pos, depth, root, gamma, history, tp_move, tp_score):
+    # First try not moving at all. We only do this if there is at least one major
+    # piece left on the board, since otherwise zugzwangs are too dangerous.
+    if depth > 0 and not root and check_if_RBNQ(pos.board):
+        yield NoneMove, -searcher_bound(pos.nullmove(), 1-gamma, depth-3, history, tp_move, tp_score, False)
+    # For QSearch we have a different kind of null-move, namely we can just stop
+    # and not capture anything else.
+    if depth == 0:
+        yield NoneMove, pos.score
+    # Then killer move. We search it twice, but the tp will fix things for us.
+    # Note, we don't have to check for legality, since we've already done it
+    # before. Also note that in QS the killer must be a capture, otherwise we
+    # will be non deterministic.
+
+    killer = tp_move.get(pos.str, NoneMove)
+    if killer != NoneMove and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
+        yield killer, -searcher_bound(pos.move(killer, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
+    # Then all the other moves
+
+    def f(m):
+        return pos.value(m, pst)
+    for move in sorted(pos.gen_moves(directions), key=f, reverse=True):
+        #for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
+        # If depth == 0 we only try moves with high intrinsic score (captures and
+        # promotions). Otherwise we do all moves.
+        if depth > 0 or pos.value(move, pst) >= QS_LIMIT:
+            yield move, -searcher_bound(pos.move(move, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
+
+
 def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
     """ returns r where
             s(pos) <= r < gamma    if gamma > s(pos)
@@ -366,39 +416,9 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
     # Here extensions may be added
     # Such as 'if in_check: depth += 1'
 
-    # Generator of moves to search in order.
-    # This allows us to define the moves, but only calculate them if needed.
-    def moves():
-        # First try not moving at all. We only do this if there is at least one major
-        # piece left on the board, since otherwise zugzwangs are too dangerous.
-        if depth > 0 and not root and any(c in pos.board for c in 'RBNQ'):
-            yield NoneMove, -searcher_bound(pos.nullmove(), 1-gamma, depth-3, history, tp_move, tp_score, False)
-        # For QSearch we have a different kind of null-move, namely we can just stop
-        # and not capture anything else.
-        if depth == 0:
-            yield NoneMove, pos.score
-        # Then killer move. We search it twice, but the tp will fix things for us.
-        # Note, we don't have to check for legality, since we've already done it
-        # before. Also note that in QS the killer must be a capture, otherwise we
-        # will be non deterministic.
-
-        killer = tp_move.get(pos.str, NoneMove)
-        if killer != NoneMove and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
-            yield killer, -searcher_bound(pos.move(killer, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
-        # Then all the other moves
-
-        def f(m):
-            return pos.value(m, pst)
-        for move in sorted(pos.gen_moves(directions), key=f, reverse=True):
-            #for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
-            # If depth == 0 we only try moves with high intrinsic score (captures and
-            # promotions). Otherwise we do all moves.
-            if depth > 0 or pos.value(move, pst) >= QS_LIMIT:
-                yield move, -searcher_bound(pos.move(move, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
-
     # Run through the moves, shortcutting when possible
     best = -MATE_UPPER
-    for move, score in moves():
+    for move, score in moves(pos, depth, root, gamma, history, tp_move, tp_score):
         best = max(best, score)
         if best >= gamma:
             # Clear before setting, so we always have a value
@@ -418,8 +438,7 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
     # but only if depth == 1, so that's probably fair enough.
     # (Btw, at depth 1 we can also mate without realizing.)
     if best < gamma and best < 0 and depth > 0:
-        is_dead = lambda pos: any(pos.value(m, pst) >= MATE_LOWER for m in pos.gen_moves(directions))
-        if all(is_dead(pos.move(m, pst)) for m in pos.gen_moves(directions)):
+        if all_dead(pos, pst, directions):
             in_check = is_dead(pos.nullmove())
             best = -MATE_UPPER if in_check else 0
 
