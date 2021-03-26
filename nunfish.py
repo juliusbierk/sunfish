@@ -300,9 +300,6 @@ def tup_to_str(tup):
 
 def searcher_search(pos, history, tp_score, tp_move):
     """ Iterative deepening MTD-bi search """
-    if history is None:
-        history = {}
-
     if DRAW_TEST:
         # print('# Clearing table due to new history')
         tp_score.clear()
@@ -356,7 +353,7 @@ def all_dead(pos, pst, directions):
 
 # Generator of moves to search in order.
 # This allows us to define the moves, but only calculate them if needed.
-# @njit
+@njit
 def moves(pos, depth, root, gamma, history, tp_move, tp_score, pst, directions):
     # First try not moving at all. We only do this if there is at least one major
     # piece left on the board, since otherwise zugzwangs are too dangerous.
@@ -380,20 +377,16 @@ def moves(pos, depth, root, gamma, history, tp_move, tp_score, pst, directions):
 
     # Then all the other moves
     remaining_moves = list(pos.gen_moves(directions))
-    scores = sorted([(pos.value(m, pst), m) for m in remaining_moves], reverse=True)
-    # a = [x[1] for x in scpr]
-    def f(m):
-        return pos.value(m, pst)
-    a = sorted(remaining_moves, key=f, reverse=True)
-    for move in a:
-    # for move in remaining_moves:
+    scores = sorted([(pos.value(m, pst), -i) for i, m in enumerate(remaining_moves)], reverse=True)
+    for _, i in scores:
+        move = remaining_moves[-i]  # -i is a hack to ensure same sort order as original code
         # If depth == 0 we only try moves with high intrinsic score (captures and
         # promotions). Otherwise we do all moves.
         if depth > 0 or pos.value(move, pst) >= QS_LIMIT:
             yield move, -searcher_bound(pos.move(move, pst), 1-gamma, depth-1, history, tp_move, tp_score, pst, directions, False)
 
 
-# @njit
+@njit
 def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, pst, directions, root=True):
     """ returns r where
             s(pos) <= r < gamma    if gamma > s(pos)
