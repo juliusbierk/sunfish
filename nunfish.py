@@ -328,11 +328,13 @@ def check_if_RBNQ(board):
             return True
     return False
 
+
 def is_dead(pos, pst, directions):
     for m in pos.gen_moves(directions):
         if pos.value(m, pst) >= MATE_LOWER:
             return True
     return False
+
 
 def all_dead(pos, pst, directions):
     for m in pos.gen_moves(directions):
@@ -439,7 +441,7 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
     # (Btw, at depth 1 we can also mate without realizing.)
     if best < gamma and best < 0 and depth > 0:
         if all_dead(pos, pst, directions):
-            in_check = is_dead(pos.nullmove())
+            in_check = is_dead(pos.nullmove(), pst, directions)
             best = -MATE_UPPER if in_check else 0
 
     # Clear before setting, so we always have a value
