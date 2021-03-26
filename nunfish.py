@@ -2,11 +2,9 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
-import re, sys, time
-from functools import partial
-from itertools import count
+import time
 from collections import namedtuple
-from numba import jit, njit, typed
+from numba import njit, typed
 from numba.experimental import jitclass
 from numba.core import types
 import numba as nb
@@ -362,11 +360,12 @@ def moves(pos, depth, root, gamma, history, tp_move, tp_score):
     killer = tp_move.get(pos.str, NoneMove)
     if killer != NoneMove and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
         yield killer, -searcher_bound(pos.move(killer, pst), 1-gamma, depth-1, history, tp_move, tp_score, False)
-    # Then all the other moves
 
+    # Then all the other moves
+    remaining_moves = list(pos.gen_moves(directions))
     def f(m):
         return pos.value(m, pst)
-    for move in sorted(pos.gen_moves(directions), key=f, reverse=True):
+    for move in sorted(remaining_moves, key=f, reverse=True):
         #for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
         # If depth == 0 we only try moves with high intrinsic score (captures and
         # promotions). Otherwise we do all moves.
@@ -458,10 +457,6 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, root=True):
 ###############################################################################
 # User interface
 ###############################################################################
-
-# Python 2 compatability
-if sys.version_info[0] == 2:
-    input = raw_input
 
 
 def parse(c):
