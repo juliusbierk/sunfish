@@ -159,7 +159,7 @@ zobrist = np.random.randint(np.iinfo(np.int64).min, np.iinfo(np.int64).max, size
 @njit
 def zhash(board):
     h = np.int64(0)
-    for i in range(len(board)):
+    for i in range(21, 100):
         p = board[i]
         if p >= PAWN:
             h = np.bitwise_xor(h, zobrist[i - 21, p - PAWN])
@@ -201,13 +201,6 @@ def isblack(p):
 @njit
 def swapwhiteblack(board):
     return board + BLACK_OFFSET * np.logical_and(PAWN <= board, board <= KING) - BLACK_OFFSET * (board >= BLACK_PAWN)
-    # board = board.copy()
-    # for i in range(len(board)):
-    #     if board[i] >= BLACK_PAWN:
-    #         board[i] -= BLACK_OFFSET
-    #     elif PAWN <= board[i] <= KING:
-    #         board[i] += BLACK_OFFSET
-    # return board
 
 
 ###############################################################################
@@ -404,7 +397,8 @@ def searcher_search(pos, history, tp_score, tp_move, pst, directions):
         searcher_bound(pos, lower, depth, history, tp_move, tp_score, pst, directions)
         # If the game hasn't finished we can retrieve our move from the
         # transposition table.
-        yield depth, tp_move.get(pos.str, NoneMove), tp_score[tup_to_str((pos.str, depth, True))].lower
+        h = pos.str
+        yield depth, tp_move.get(h, NoneMove), tp_score[tup_to_str((h, depth, True))].lower
 
 
 @njit
@@ -448,8 +442,9 @@ def moves(pos, depth, root, gamma, history, tp_move, tp_score, pst, directions):
     # before. Also note that in QS the killer must be a capture, otherwise we
     # will be non deterministic.
 
-    if pos.str in tp_move:
-        killer = tp_move[pos.str]
+    h = pos.str
+    if h in tp_move:
+        killer = tp_move[h]
     else:
         killer = NoneMove
     if not (killer[0] == NoneMove[0] and killer[1] == NoneMove[1]) and (depth > 0 or pos.value(killer, pst) >= QS_LIMIT):
@@ -492,19 +487,20 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, pst, direction
     # This is what prevents a search instability.
     # FIXME: This is not true, since other positions will be affected by
     # the new values for all the drawn positions.
+    h = pos.str
     if DRAW_TEST:
-        if not root and pos.str in history:
+        if not root and h in history:
             return 0
 
     # Look in the table if we have already searched this position before.
     # We also need to be sure, that the stored search was over the same
     # nodes as the current search.
-    x = tup_to_str((pos.str, depth, root))
+    x = tup_to_str((h, depth, root))
     if x in tp_score:
         entry = tp_score[x]
     else:
         entry = Entry(-MATE_UPPER, MATE_UPPER)
-    if entry.lower >= gamma and (not root or tp_move.get(pos.str, NoneMove) != NoneMove):
+    if entry.lower >= gamma and (not root or tp_move.get(h, NoneMove) != NoneMove):
         return entry.lower
     if entry.upper < gamma:
         return entry.upper
@@ -520,7 +516,7 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, pst, direction
             # Clear before setting, so we always have a value
             if len(tp_move) > TABLE_SIZE: tp_move.clear()
             # Save the move for pv construction and killer heuristic
-            tp_move[pos.str] = move
+            tp_move[h] = move
             break
 
     # Stalemate checking is a bit tricky: Say we failed low, because
@@ -542,9 +538,9 @@ def searcher_bound(pos, gamma, depth, history, tp_move, tp_score, pst, direction
     if len(tp_score) > TABLE_SIZE: tp_score.clear()
     # Table part 2
     if best >= gamma:
-        tp_score[tup_to_str((pos.str, depth, root))] = Entry(best, entry.upper)
+        tp_score[x] = Entry(best, entry.upper)
     if best < gamma:
-        tp_score[tup_to_str((pos.str, depth, root))] = Entry(entry.lower, best)
+        tp_score[x] = Entry(entry.lower, best)
 
     return best
 
@@ -575,7 +571,7 @@ def print_pos(pos):
 
 def timeit():
     moves2 = [(84, 64), (85, 65), (97, 76), (97, 76), (92, 73), (92, 73), (93, 66), (96, 63), (76, 55), (76, 64), (66, 55), (73, 54), (86, 76), (54, 46), (82, 73), (84, 74), (85, 75), (95, 51), (87, 77), (51, 84), (96, 52), (86, 76), (52, 74), (83, 73), (74, 56), (74, 63), (55, 66), (82, 62), (66, 57), (73, 62), (94, 74), (84, 83), (95, 97), (94, 96), (91, 94), (96, 97), (96, 95), (93, 82), (88, 78), (91, 94), (81, 71), (88, 78), (71, 61), (81, 71), (61, 51), (71, 61), (74, 85), (82, 73), (85, 74), (83, 72), (74, 85), (73, 82), (85, 74), (72, 74), (74, 85), (82, 73), (85, 74), (74, 85), (74, 85), (85, 86), (85, 86), (86, 68), (86, 84), (68, 38), (84, 74), (38, 37), (74, 56), (95, 75), (56, 47), (75, 74), (47, 74), (61, 51), (77, 68), (62, 51), (94, 92), (94, 92), (97, 98), (37, 38), (92, 42), (92, 42), (74, 56), (74, 75), (95, 94), (97, 88), (94, 92), (88, 98), (42, 32), (38, 56)]
-    sdepth = 2
+    sdepth = 3
     for run in range(2):
         if run == 0:
             print('Run 1, with jitting:')
