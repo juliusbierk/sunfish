@@ -91,14 +91,11 @@ for k, table in pst.items():
     pst[k] = sum((padrow(table[i*8:i*8+8]) for i in range(8)), ())
     pst[k] = (0,)*20 + pst[k] + (0,)*20
 
-# Make numba typed:
+# Make numpy typed:
 pst_tup = pst
-pst = typed.Dict.empty(
-    key_type=types.int64,
-    value_type=types.int64[:],
-)
+pst = np.empty((KING + 1, 120), dtype=np.int64)
 for k in pst_tup:
-    pst[k] = np.array(pst_tup[k], dtype='i8')
+    pst[k, :] = np.array(pst_tup[k], dtype='i8')
 
 
 ###############################################################################
@@ -129,17 +126,17 @@ for i in range(len(initial_str)):
     initial[i] = trans[x] if x in trans else (trans[x.upper()] + BLACK_OFFSET)
 
 # Lists of possible moves for each piece type.
-N, E, S, W = -10, 1, 10, -1
-directions = typed.Dict.empty(
-    key_type=types.int64,
-    value_type=types.int64[:],
-)
-directions[PAWN] = np.array([N, N+N, N+W, N+E], dtype='i8')
-directions[KNIGHT] = np.array([N+N+E, E+N+E, E+S+E, S+S+E, S+S+W, W+S+W, W+N+W, N+N+W], dtype='i8')
-directions[BISHOP] = np.array([N+E, S+E, S+W, N+W], dtype='i8')
-directions[ROOK] = np.array([N, E, S, W], dtype='i8')
-directions[QUEEN] = np.array([N, E, S, W, N+E, S+E, S+W, N+W], dtype='i8')
-directions[KING] = np.array([N, E, S, W, N+E, S+E, S+W, N+W], dtype='i8')
+N, E, S, W, STOP = -10, 1, 10, -1, 100
+directions_d = {}
+directions_d[PAWN] = np.array([N, N+N, N+W, N+E, STOP], dtype='i8')
+directions_d[KNIGHT] = np.array([N+N+E, E+N+E, E+S+E, S+S+E, S+S+W, W+S+W, W+N+W, N+N+W, STOP], dtype='i8')
+directions_d[BISHOP] = np.array([N+E, S+E, S+W, N+W, STOP], dtype='i8')
+directions_d[ROOK] = np.array([N, E, S, W, STOP], dtype='i8')
+directions_d[QUEEN] = np.array([N, E, S, W, N+E, S+E, S+W, N+W, STOP], dtype='i8')
+directions_d[KING] = np.array([N, E, S, W, N+E, S+E, S+W, N+W, STOP], dtype='i8')
+directions = np.empty((KING + 1, 10), dtype=np.int64)
+for k in directions_d:
+    directions[k, :len(directions_d[k])] = directions_d[k]
 
 # Mate value must be greater than 8*queen + 2*(rook+knight+bishop)
 # King value is set to twice this value such that if the opponent is
@@ -258,6 +255,8 @@ class Position:
         for i, p in enumerate(self.board):
             if not iswhite(p): continue
             for d in directions[p]:
+                if d == STOP:
+                    break
                 j = i
                 while True:
                     j += d
@@ -576,7 +575,7 @@ def print_pos(pos):
 
 def timeit():
     moves2 = [(84, 64), (85, 65), (97, 76), (97, 76), (92, 73), (92, 73), (93, 66), (96, 63), (76, 55), (76, 64), (66, 55), (73, 54), (86, 76), (54, 46), (82, 73), (84, 74), (85, 75), (95, 51), (87, 77), (51, 84), (96, 52), (86, 76), (52, 74), (83, 73), (74, 56), (74, 63), (55, 66), (82, 62), (66, 57), (73, 62), (94, 74), (84, 83), (95, 97), (94, 96), (91, 94), (96, 97), (96, 95), (93, 82), (88, 78), (91, 94), (81, 71), (88, 78), (71, 61), (81, 71), (61, 51), (71, 61), (74, 85), (82, 73), (85, 74), (83, 72), (74, 85), (73, 82), (85, 74), (72, 74), (74, 85), (82, 73), (85, 74), (74, 85), (74, 85), (85, 86), (85, 86), (86, 68), (86, 84), (68, 38), (84, 74), (38, 37), (74, 56), (95, 75), (56, 47), (75, 74), (47, 74), (61, 51), (77, 68), (62, 51), (94, 92), (94, 92), (97, 98), (37, 38), (92, 42), (92, 42), (74, 56), (74, 75), (95, 94), (97, 88), (94, 92), (88, 98), (42, 32), (38, 56)]
-    sdepth = 3
+    sdepth = 2
     for run in range(2):
         if run == 0:
             print('Run 1, with jitting:')
