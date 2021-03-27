@@ -1,7 +1,7 @@
 #!/usr/bin/env pypy
 # -*- coding: utf-8 -*-
-
-from __future__ import print_function
+import os
+# os.environ['NUMBA_DISABLE_JIT'] = "1"
 import time
 from collections import namedtuple
 from numba import njit, typed
@@ -14,9 +14,28 @@ import numpy as np
 # Piece-Square tables. Tune these to change sunfish's behaviour
 ###############################################################################
 
-piece = { 'P': 100, 'N': 280, 'B': 320, 'R': 479, 'Q': 929, 'K': 60000 }
+PADDING = 0
+EMPTY = 1
+
+PAWN = 2
+KNIGHT = 3
+BISHOP = 4
+ROOK = 5
+QUEEN = 6
+KING = 7
+
+BLACK_OFFSET = 10
+
+BLACK_PAWN = 12
+BLACK_KNIGHT = 13
+BLACK_BISHOP = 14
+BLACK_ROOK = 15
+BLACK_QUEEN = 16
+BLACK_KING = 17
+
+piece = { PAWN: 100, KNIGHT: 280, BISHOP: 320, ROOK: 479, QUEEN: 929, KING: 60000 }
 pst = {
-    'P': (   0,   0,   0,   0,   0,   0,   0,   0,
+    PAWN: (   0,   0,   0,   0,   0,   0,   0,   0,
             78,  83,  86,  73, 102,  82,  85,  90,
              7,  29,  21,  44,  40,  31,  44,   7,
            -17,  16,  -2,  15,  14,   0,  15, -13,
@@ -24,7 +43,7 @@ pst = {
            -22,   9,   5, -11, -10,  -2,   3, -19,
            -31,   8,  -7, -37, -36, -14,   3, -31,
              0,   0,   0,   0,   0,   0,   0,   0),
-    'N': ( -66, -53, -75, -75, -10, -55, -58, -70,
+    KNIGHT: ( -66, -53, -75, -75, -10, -55, -58, -70,
             -3,  -6, 100, -36,   4,  62,  -4, -14,
             10,  67,   1,  74,  73,  27,  62,  -2,
             24,  24,  45,  37,  33,  41,  25,  17,
@@ -32,7 +51,7 @@ pst = {
            -18,  10,  13,  22,  18,  15,  11, -14,
            -23, -15,   2,   0,   2,   0, -23, -20,
            -74, -23, -26, -24, -19, -35, -22, -69),
-    'B': ( -59, -78, -82, -76, -23,-107, -37, -50,
+    BISHOP: ( -59, -78, -82, -76, -23,-107, -37, -50,
            -11,  20,  35, -42, -39,  31,   2, -22,
             -9,  39, -32,  41,  52, -10,  28, -14,
             25,  17,  20,  34,  26,  25,  15,  10,
@@ -40,7 +59,7 @@ pst = {
             14,  25,  24,  15,   8,  25,  20,  15,
             19,  20,  11,   6,   7,   6,  20,  16,
             -7,   2, -15, -12, -14, -15, -10, -10),
-    'R': (  35,  29,  33,   4,  37,  33,  56,  50,
+    ROOK: (  35,  29,  33,   4,  37,  33,  56,  50,
             55,  29,  56,  67,  55,  62,  34,  60,
             19,  35,  28,  33,  45,  27,  25,  15,
              0,   5,  16,  13,  18,  -4,  -9,  -6,
@@ -48,7 +67,7 @@ pst = {
            -42, -28, -42, -25, -25, -35, -26, -46,
            -53, -38, -31, -26, -29, -43, -44, -53,
            -30, -24, -18,   5,  -2, -18, -31, -32),
-    'Q': (   6,   1,  -8,-104,  69,  24,  88,  26,
+    QUEEN: (   6,   1,  -8,-104,  69,  24,  88,  26,
             14,  32,  60, -10,  20,  76,  57,  24,
             -2,  43,  32,  60,  72,  63,  43,   2,
              1, -16,  22,  17,  25,  20, -13,  -6,
@@ -56,7 +75,7 @@ pst = {
            -30,  -6, -13, -11, -16, -11, -16, -27,
            -36, -18,   0, -19, -15, -15, -21, -38,
            -39, -30, -31, -13, -31, -36, -34, -42),
-    'K': (   4,  54,  47, -99, -99,  60,  83, -62,
+    KING: (   4,  54,  47, -99, -99,  60,  83, -62,
            -32,  10,  55,  56,  56,  55,  10,   3,
            -62,  12, -57,  44, -67,  28,  37, -31,
            -55,  50,  11,  -4, -19,  13,   0, -49,
@@ -74,7 +93,7 @@ for k, table in pst.items():
 # Make numba typed:
 pst_tup = pst
 pst = typed.Dict.empty(
-    key_type=nb.typeof(np.array(['a'])[0]),
+    key_type=types.int64,
     value_type=types.int64[:],
 )
 for k in pst_tup:
@@ -87,7 +106,7 @@ for k in pst_tup:
 # Our board is represented as a 120 character string. The padding allows for
 # fast detection of moves that don't stay within the board.
 A1, H1, A8, H8 = 91, 98, 21, 28
-initial = (
+initial_str = (
     '         \n'  #   0 -  9
     '         \n'  #  10 - 19
     ' rnbqkbnr\n'  #  20 - 29
@@ -101,27 +120,32 @@ initial = (
     '         \n'  # 100 -109
     '         \n'  # 110 -119
 )
+trans = {' ': PADDING, '\n': PADDING, 'R': ROOK, 'N': KNIGHT, 'B': BISHOP, 'Q': QUEEN, 'K': KING, 'P': PAWN, '.': EMPTY}
+initial = np.zeros(len(initial_str), dtype=np.int64)
+for i in range(len(initial_str)):
+    x = initial_str[i]
+    initial[i] = trans[x] if x in trans else (trans[x.upper()] + BLACK_OFFSET)
 
 # Lists of possible moves for each piece type.
 N, E, S, W = -10, 1, 10, -1
 directions = typed.Dict.empty(
-    key_type=nb.typeof(np.array(['a'])[0]),
+    key_type=types.int64,
     value_type=types.int64[:],
 )
-directions['P'] = np.array([N, N+N, N+W, N+E], dtype='i8')
-directions['N'] = np.array([N+N+E, E+N+E, E+S+E, S+S+E, S+S+W, W+S+W, W+N+W, N+N+W], dtype='i8')
-directions['B'] = np.array([N+E, S+E, S+W, N+W], dtype='i8')
-directions['R'] = np.array([N, E, S, W], dtype='i8')
-directions['Q'] = np.array([N, E, S, W, N+E, S+E, S+W, N+W], dtype='i8')
-directions['K'] = np.array([N, E, S, W, N+E, S+E, S+W, N+W], dtype='i8')
+directions[PAWN] = np.array([N, N+N, N+W, N+E], dtype='i8')
+directions[KNIGHT] = np.array([N+N+E, E+N+E, E+S+E, S+S+E, S+S+W, W+S+W, W+N+W, N+N+W], dtype='i8')
+directions[BISHOP] = np.array([N+E, S+E, S+W, N+W], dtype='i8')
+directions[ROOK] = np.array([N, E, S, W], dtype='i8')
+directions[QUEEN] = np.array([N, E, S, W, N+E, S+E, S+W, N+W], dtype='i8')
+directions[KING] = np.array([N, E, S, W, N+E, S+E, S+W, N+W], dtype='i8')
 
 # Mate value must be greater than 8*queen + 2*(rook+knight+bishop)
 # King value is set to twice this value such that if the opponent is
 # 8 queens up, but we got the king, we still exceed MATE_VALUE.
 # When a MATE is detected, we'll set the score to MATE_UPPER - plies to get there
 # E.g. Mate in 3 will be MATE_UPPER - 6
-MATE_LOWER = types.int64(piece['K'] - 10*piece['Q'])
-MATE_UPPER = types.int64(piece['K'] + 10*piece['Q'])
+MATE_LOWER = types.int64(piece[KING] - 10*piece[QUEEN])
+MATE_UPPER = types.int64(piece[KING] + 10*piece[QUEEN])
 
 # The table size is the maximum number of elements in the transposition table.
 TABLE_SIZE = 1e7
@@ -131,17 +155,40 @@ QS_LIMIT = 219
 EVAL_ROUGHNESS = 13
 DRAW_TEST = True
 
-
 @njit
 def put(board, i, p):
-    return board[:i] + p + board[i+1:]
+    board = board.copy()
+    board[i] = p
+    return board
+
+
+@njit
+def iswhite(p):
+    return PAWN <= p <= KING
+
+
+@njit
+def isblack(p):
+    return p >= BLACK_PAWN
+
+
+@njit
+def swapwhiteblack(board):
+    board = board.copy()
+    for i in range(len(board)):
+        if board[i] >= BLACK_PAWN:
+            board[i] -= BLACK_OFFSET
+        elif PAWN <= board[i] <= KING:
+            board[i] += BLACK_OFFSET
+    return board
+
 
 ###############################################################################
 # Chess logic
 ###############################################################################
 
 @jitclass([
-    ('board', nb.typeof(np.array(['a' * 120])[0])),
+    ('board', nb.typeof(initial)),
     ('score', types.int64),
     ('wc', nb.typeof((1, 0))),
     ('bc', nb.typeof((1, 0))),
@@ -166,9 +213,12 @@ class Position:
         self.ep = int(ep)
         self.kp = int(kp)
 
+    def string_board(self):
+        return "".join([str(x) for x in self.board])
+
     @property
     def str(self):
-        return self.board + str(self.score) + str(self.wc[0]) + str(self.wc[1]) \
+        return self.string_board() + str(self.score) + str(self.wc[0]) + str(self.wc[1]) \
                + str(self.bc[0]) + str(self.bc[1]) + str(self.ep) + str(self.kp)
 
     def gen_moves(self, directions):
@@ -176,70 +226,70 @@ class Position:
         # as defined in the 'directions' map. The rays are broken e.g. by
         # captures or immediately in case of pieces such as knights.
         for i, p in enumerate(self.board):
-            if not p.isupper(): continue
+            if not iswhite(p): continue
             for d in directions[p]:
                 j = i
                 while True:
                     j += d
                     q = self.board[j]
                     # Stay inside the board, and off friendly pieces
-                    if q.isspace() or q.isupper(): break
+                    if q == PADDING or iswhite(q): break
                     # Pawn move, double move and capture
-                    if p == 'P' and d in (N, N+N) and q != '.': break
-                    if p == 'P' and d == N+N and (i < A1+N or self.board[i+N] != '.'): break
-                    if p == 'P' and d in (N+W, N+E) and q == '.' \
+                    if p == PAWN and d in (N, N+N) and q != EMPTY: break
+                    if p == PAWN and d == N+N and (i < A1+N or self.board[i+N] != EMPTY): break
+                    if p == PAWN and d in (N+W, N+E) and q == EMPTY \
                             and j not in (self.ep, self.kp, self.kp-1, self.kp+1): break
                     # Move it
                     yield (i, j)
                     # Stop crawlers from sliding, and sliding after captures
-                    if p in 'PNK' or q.islower(): break
+                    if (p == PAWN or p == KNIGHT or p == KING) or isblack(q): break
                     # Castling, by sliding the rook next to the king
-                    if i == A1 and self.board[j+E] == 'K' and self.wc[0]: yield (j+E, j+W)
-                    if i == H1 and self.board[j+W] == 'K' and self.wc[1]: yield (j+W, j+E)
+                    if i == A1 and self.board[j+E] == KING and self.wc[0]: yield (j+E, j+W)
+                    if i == H1 and self.board[j+W] == KING and self.wc[1]: yield (j+W, j+E)
 
     def rotate(self):
         ''' Rotates the board, preserving enpassant '''
         return Position(
-            self.board[::-1].swapcase(), -self.score, self.bc, self.wc,
+            swapwhiteblack(self.board[::-1]), -self.score, self.bc, self.wc,
             119-self.ep if self.ep else 0,
             119-self.kp if self.kp else 0)
 
     def nullmove(self):
         ''' Like rotate, but clears ep and kp '''
         return Position(
-            self.board[::-1].swapcase(), -self.score,
+            swapwhiteblack(self.board[::-1]), -self.score,
             self.bc, self.wc, 0, 0)
 
     def move(self, move, pst):
         i, j = move
         p, q = self.board[i], self.board[j]
         # Copy variables and reset ep and kp
-        board = self.board
+        board = self.board.copy()
         wc, bc, ep, kp = self.wc, self.bc, 0, 0
         score = self.score + self.value(move, pst)
         # Actual move
         board = put(board, j, board[i])
-        board = put(board, i, '.')
+        board = put(board, i, EMPTY)
         # Castling rights, we move the rook or capture the opponent's
         if i == A1: wc = (False, wc[1])
         if i == H1: wc = (wc[0], False)
         if j == A8: bc = (bc[0], False)
         if j == H8: bc = (False, bc[1])
         # Castling
-        if p == 'K':
+        if p == KING:
             wc = (False, False)
             if abs(j-i) == 2:
                 kp = (i+j)//2
-                board = put(board, A1 if j < i else H1, '.')
-                board = put(board, kp, 'R')
+                board = put(board, A1 if j < i else H1, EMPTY)
+                board = put(board, kp, ROOK)
         # Pawn promotion, double move and en passant capture
-        if p == 'P':
+        if p == PAWN:
             if A8 <= j <= H8:
-                board = put(board, j, 'Q')
+                board = put(board, j, QUEEN)
             if j - i == 2*N:
                 ep = i + N
             if j == self.ep:
-                board = put(board, j+S, '.')
+                board = put(board, j+S, EMPTY)
         # We rotate the returned position, so it's ready for the next player
         return Position(board, score, wc, bc, ep, kp).rotate()
 
@@ -249,21 +299,21 @@ class Position:
         # Actual move
         score = pst[p][j] - pst[p][i]
         # Capture
-        if q.islower():
-            score += pst[q.upper()][119-j]
+        if isblack(q):
+            score += pst[q - BLACK_OFFSET][119-j]
         # Castling check detection
         if abs(j-self.kp) < 2:
-            score += pst['K'][119-j]
+            score += pst[KING][119-j]
         # Castling
-        if p == 'K' and abs(i-j) == 2:
-            score += pst['R'][(i+j)//2]
-            score -= pst['R'][A1 if j < i else H1]
+        if p == KING and abs(i-j) == 2:
+            score += pst[ROOK][(i+j)//2]
+            score -= pst[ROOK][A1 if j < i else H1]
         # Special pawn stuff
-        if p == 'P':
+        if p == PAWN:
             if A8 <= j <= H8:
-                score += pst['Q'][j] - pst['P'][j]
+                score += pst[QUEEN][j] - pst[PAWN][j]
             if j == self.ep:
-                score += pst['P'][119-(j+S)]
+                score += pst[PAWN][119-(j+S)]
         return score
 
 ###############################################################################
@@ -333,8 +383,8 @@ def searcher_search(pos, history, tp_score, tp_move, pst, directions):
 
 @njit
 def check_if_RBNQ(board):
-    for c in 'RBQN':
-        if c in board:
+    for c in board:
+        if c == ROOK or c == BISHOP or c == QUEEN or c == KNIGHT:
             return True
     return False
 
@@ -490,15 +540,17 @@ def render(i):
 
 def print_pos(pos):
     print()
-    uni_pieces = {'R':'♜', 'N':'♞', 'B':'♝', 'Q':'♛', 'K':'♚', 'P':'♟',
-                  'r':'♖', 'n':'♘', 'b':'♗', 'q':'♕', 'k':'♔', 'p':'♙', '.':'·'}
+    uni_pieces = {ROOK:'♜', KNIGHT:'♞', BISHOP:'♝', QUEEN:'♛', KING:'♚', PAWN:'♟',
+                  BLACK_ROOK:'♖', BLACK_KNIGHT:'♘', BLACK_BISHOP:'♗', BLACK_QUEEN:'♕', BLACK_KING:'♔', BLACK_PAWN:'♙', EMPTY:'·'}
     for i, row in enumerate(pos.board.split()):
         print(' ', 8-i, ' '.join(uni_pieces.get(p, p) for p in row))
     print('    a b c d e f g h \n\n')
 
 
 def timeit():
-    for run in range(250):
+    moves2 = [(84, 64), (85, 65), (97, 76), (97, 76), (92, 73), (92, 73), (93, 66), (96, 63), (76, 55), (76, 64), (66, 55), (73, 54), (86, 76), (54, 46), (82, 73), (84, 74), (85, 75), (95, 51), (87, 77), (51, 84), (96, 52), (86, 76), (52, 74), (83, 73), (74, 56), (74, 63), (55, 66), (82, 62), (66, 57), (73, 62), (94, 74), (84, 83), (95, 97), (94, 96), (91, 94), (96, 97), (96, 95), (93, 82), (88, 78), (91, 94), (81, 71), (88, 78), (71, 61), (81, 71), (61, 51), (71, 61), (74, 85), (82, 73), (85, 74), (83, 72), (74, 85), (73, 82), (85, 74), (72, 74), (74, 85), (82, 73), (85, 74), (74, 85), (74, 85), (85, 86), (85, 86), (86, 68), (86, 84), (68, 38), (84, 74), (38, 37), (74, 56), (95, 75), (56, 47), (75, 74), (47, 74), (61, 51), (77, 68), (62, 51), (94, 92), (94, 92), (97, 98), (37, 38), (92, 42), (92, 42), (74, 56), (74, 75), (95, 94), (97, 88), (94, 92), (88, 98), (42, 32), (38, 56)]
+    sdepth = 3
+    for run in range(2):
         if run == 0:
             print('Run 1, with jitting:')
         else:
@@ -513,6 +565,7 @@ def timeit():
         searcher = Searcher()
 
         t1 = time.time()
+        mi = 0
         while True:
             if pos.score <= -MATE_LOWER:
                 break
@@ -520,12 +573,16 @@ def timeit():
             i = 0
             for _, move, score in searcher.search(pos, hist):
                 i += 1
-                if i == 3:
+                if i == sdepth:
                     break
 
             if score == MATE_UPPER:
                 break
             pos = pos.move(move, pst)
+            if sdepth == 2 and run == 0:
+                assert move == moves2[mi]
+                mi += 1
+            print(move)
 
             hist[pos.str] = 1
 
