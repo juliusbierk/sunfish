@@ -181,9 +181,10 @@ def zhash_full(board, score, wc, bc, ep, kp):
     return h
 
 
+board_idx = np.arange(len(initial))
+
 @njit
 def put(board, i, p):
-    board = board.copy()
     board[i] = p
     return board
 
