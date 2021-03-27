@@ -24,65 +24,66 @@ ROOK = 5
 QUEEN = 6
 KING = 7
 
-BLACK_OFFSET = 10
+BLACK_OFFSET = KING - PAWN + 1
 
-BLACK_PAWN = 12
-BLACK_KNIGHT = 13
-BLACK_BISHOP = 14
-BLACK_ROOK = 15
-BLACK_QUEEN = 16
-BLACK_KING = 17
+BLACK_PAWN = PAWN + BLACK_OFFSET
+BLACK_KNIGHT = KNIGHT + BLACK_OFFSET
+BLACK_BISHOP = BISHOP + BLACK_OFFSET
+BLACK_ROOK = ROOK + BLACK_OFFSET
+BLACK_QUEEN = QUEEN + BLACK_OFFSET
+BLACK_KING = KING + BLACK_OFFSET
+
 
 piece = { PAWN: 100, KNIGHT: 280, BISHOP: 320, ROOK: 479, QUEEN: 929, KING: 60000 }
 pst = {
     PAWN: (   0,   0,   0,   0,   0,   0,   0,   0,
-              78,  83,  86,  73, 102,  82,  85,  90,
-              7,  29,  21,  44,  40,  31,  44,   7,
-              -17,  16,  -2,  15,  14,   0,  15, -13,
-              -26,   3,  10,   9,   6,   1,   0, -23,
-              -22,   9,   5, -11, -10,  -2,   3, -19,
-              -31,   8,  -7, -37, -36, -14,   3, -31,
-              0,   0,   0,   0,   0,   0,   0,   0),
+            78,  83,  86,  73, 102,  82,  85,  90,
+             7,  29,  21,  44,  40,  31,  44,   7,
+           -17,  16,  -2,  15,  14,   0,  15, -13,
+           -26,   3,  10,   9,   6,   1,   0, -23,
+           -22,   9,   5, -11, -10,  -2,   3, -19,
+           -31,   8,  -7, -37, -36, -14,   3, -31,
+             0,   0,   0,   0,   0,   0,   0,   0),
     KNIGHT: ( -66, -53, -75, -75, -10, -55, -58, -70,
-              -3,  -6, 100, -36,   4,  62,  -4, -14,
-              10,  67,   1,  74,  73,  27,  62,  -2,
-              24,  24,  45,  37,  33,  41,  25,  17,
-              -1,   5,  31,  21,  22,  35,   2,   0,
-              -18,  10,  13,  22,  18,  15,  11, -14,
-              -23, -15,   2,   0,   2,   0, -23, -20,
-              -74, -23, -26, -24, -19, -35, -22, -69),
+            -3,  -6, 100, -36,   4,  62,  -4, -14,
+            10,  67,   1,  74,  73,  27,  62,  -2,
+            24,  24,  45,  37,  33,  41,  25,  17,
+            -1,   5,  31,  21,  22,  35,   2,   0,
+           -18,  10,  13,  22,  18,  15,  11, -14,
+           -23, -15,   2,   0,   2,   0, -23, -20,
+           -74, -23, -26, -24, -19, -35, -22, -69),
     BISHOP: ( -59, -78, -82, -76, -23,-107, -37, -50,
-              -11,  20,  35, -42, -39,  31,   2, -22,
-              -9,  39, -32,  41,  52, -10,  28, -14,
-              25,  17,  20,  34,  26,  25,  15,  10,
-              13,  10,  17,  23,  17,  16,   0,   7,
-              14,  25,  24,  15,   8,  25,  20,  15,
-              19,  20,  11,   6,   7,   6,  20,  16,
-              -7,   2, -15, -12, -14, -15, -10, -10),
+           -11,  20,  35, -42, -39,  31,   2, -22,
+            -9,  39, -32,  41,  52, -10,  28, -14,
+            25,  17,  20,  34,  26,  25,  15,  10,
+            13,  10,  17,  23,  17,  16,   0,   7,
+            14,  25,  24,  15,   8,  25,  20,  15,
+            19,  20,  11,   6,   7,   6,  20,  16,
+            -7,   2, -15, -12, -14, -15, -10, -10),
     ROOK: (  35,  29,  33,   4,  37,  33,  56,  50,
-             55,  29,  56,  67,  55,  62,  34,  60,
-             19,  35,  28,  33,  45,  27,  25,  15,
+            55,  29,  56,  67,  55,  62,  34,  60,
+            19,  35,  28,  33,  45,  27,  25,  15,
              0,   5,  16,  13,  18,  -4,  -9,  -6,
-             -28, -35, -16, -21, -13, -29, -46, -30,
-             -42, -28, -42, -25, -25, -35, -26, -46,
-             -53, -38, -31, -26, -29, -43, -44, -53,
-             -30, -24, -18,   5,  -2, -18, -31, -32),
+           -28, -35, -16, -21, -13, -29, -46, -30,
+           -42, -28, -42, -25, -25, -35, -26, -46,
+           -53, -38, -31, -26, -29, -43, -44, -53,
+           -30, -24, -18,   5,  -2, -18, -31, -32),
     QUEEN: (   6,   1,  -8,-104,  69,  24,  88,  26,
-               14,  32,  60, -10,  20,  76,  57,  24,
-               -2,  43,  32,  60,  72,  63,  43,   2,
-               1, -16,  22,  17,  25,  20, -13,  -6,
-               -14, -15,  -2,  -5,  -1, -10, -20, -22,
-               -30,  -6, -13, -11, -16, -11, -16, -27,
-               -36, -18,   0, -19, -15, -15, -21, -38,
-               -39, -30, -31, -13, -31, -36, -34, -42),
+            14,  32,  60, -10,  20,  76,  57,  24,
+            -2,  43,  32,  60,  72,  63,  43,   2,
+             1, -16,  22,  17,  25,  20, -13,  -6,
+           -14, -15,  -2,  -5,  -1, -10, -20, -22,
+           -30,  -6, -13, -11, -16, -11, -16, -27,
+           -36, -18,   0, -19, -15, -15, -21, -38,
+           -39, -30, -31, -13, -31, -36, -34, -42),
     KING: (   4,  54,  47, -99, -99,  60,  83, -62,
-              -32,  10,  55,  56,  56,  55,  10,   3,
-              -62,  12, -57,  44, -67,  28,  37, -31,
-              -55,  50,  11,  -4, -19,  13,   0, -49,
-              -55, -43, -52, -28, -51, -47,  -8, -50,
-              -47, -42, -43, -79, -64, -32, -29, -32,
-              -4,   3, -14, -50, -57, -18,  13,   4,
-              17,  30,  -3, -14,   6,  -1,  40,  18),
+           -32,  10,  55,  56,  56,  55,  10,   3,
+           -62,  12, -57,  44, -67,  28,  37, -31,
+           -55,  50,  11,  -4, -19,  13,   0, -49,
+           -55, -43, -52, -28, -51, -47,  -8, -50,
+           -47, -42, -43, -79, -64, -32, -29, -32,
+            -4,   3, -14, -50, -57, -18,  13,   4,
+            17,  30,  -3, -14,   6,  -1,  40,  18),
 }
 # Pad tables and join piece and pst dictionaries
 for k, table in pst.items():
@@ -98,6 +99,7 @@ pst = typed.Dict.empty(
 )
 for k in pst_tup:
     pst[k] = np.array(pst_tup[k], dtype='i8')
+
 
 ###############################################################################
 # Global constants
@@ -155,6 +157,33 @@ QS_LIMIT = 219
 EVAL_ROUGHNESS = 13
 DRAW_TEST = True
 
+zobrist = np.random.randint(np.iinfo(np.int64).min, np.iinfo(np.int64).max, size=(len(initial), BLACK_KING), dtype=np.int64)
+
+@njit
+def zhash(board):
+    h = np.int64(0)
+    for i in range(len(board)):
+        p = board[i]
+        if p >= PAWN:
+            h = np.bitwise_xor(h, zobrist[i - 21, p - PAWN])
+    return h
+
+
+zobrist_score = np.random.randint(np.iinfo(np.int64).min, np.iinfo(np.int64).max - 1, size=4 * MATE_UPPER, dtype=np.int64)
+zobrist_extra = np.random.randint(np.iinfo(np.int64).min, np.iinfo(np.int64).max - 1, size=1000, dtype=np.int64)
+@njit
+def zhash_full(board, score, wc, bc, ep, kp):
+    h = zhash(board)
+    h = np.bitwise_xor(h, zobrist_score[MATE_UPPER + int(score) + 1])
+    h = np.bitwise_xor(h, zobrist_extra[int(wc[0])])
+    h = np.bitwise_xor(h, zobrist_extra[100 + int(wc[1])])
+    h = np.bitwise_xor(h, zobrist_extra[200 + int(bc[0])])
+    h = np.bitwise_xor(h, zobrist_extra[300 + int(bc[1])])
+    h = np.bitwise_xor(h, zobrist_extra[400 + ep])
+    h = np.bitwise_xor(h, zobrist_extra[500 + kp])
+    return h
+
+
 @njit
 def put(board, i, p):
     board = board.copy()
@@ -174,13 +203,14 @@ def isblack(p):
 
 @njit
 def swapwhiteblack(board):
-    board = board.copy()
-    for i in range(len(board)):
-        if board[i] >= BLACK_PAWN:
-            board[i] -= BLACK_OFFSET
-        elif PAWN <= board[i] <= KING:
-            board[i] += BLACK_OFFSET
-    return board
+    return board + BLACK_OFFSET * np.logical_and(PAWN <= board, board <= KING) - BLACK_OFFSET * (board >= BLACK_PAWN)
+    # board = board.copy()
+    # for i in range(len(board)):
+    #     if board[i] >= BLACK_PAWN:
+    #         board[i] -= BLACK_OFFSET
+    #     elif PAWN <= board[i] <= KING:
+    #         board[i] += BLACK_OFFSET
+    # return board
 
 
 ###############################################################################
@@ -218,8 +248,8 @@ class Position:
 
     @property
     def str(self):
-        return self.string_board() + str(self.score) + str(self.wc[0]) + str(self.wc[1]) \
-               + str(self.bc[0]) + str(self.bc[1]) + str(self.ep) + str(self.kp)
+        return zhash_full(self.board, self.score, self.wc, self.bc, self.ep, self.kp)
+
 
     def gen_moves(self, directions):
         # For each of our pieces, iterate through each possible 'ray' of moves,
@@ -327,15 +357,15 @@ NoneMove = (0, 0)
 class Searcher:
     def __init__(self):
         self.tp_score = typed.Dict.empty(
-            key_type=nb.typeof(np.array(['a' * 200])[0]),
+            key_type=types.int64,
             value_type=nb.typeof(Entry(0, 0)),
         )
         self.tp_move = typed.Dict.empty(
-            key_type=nb.typeof(np.array(['a' * 200])[0]),
+            key_type=types.int64,
             value_type=nb.typeof(NoneMove),
         )
         self.history = typed.Dict.empty(
-            key_type=nb.typeof(np.array(['a' * 200])[0]),
+            key_type=types.int64,
             value_type=types.int64,
         )
 
@@ -345,10 +375,7 @@ class Searcher:
 
 @njit
 def tup_to_str(tup):
-    if tup[2]:
-        return str(tup[0]) + str(tup[1]) + '+1'
-    else:
-        return str(tup[0]) + str(tup[1]) + '-1'
+    return np.bitwise_xor(np.bitwise_xor(tup[0], zobrist_extra[600 + int(tup[1])]), zobrist_extra[700 + int(tup[1])])
 
 
 @njit
@@ -558,7 +585,7 @@ def timeit():
 
         pos = Position(initial, 0, (True,True), (True,True), 0, 0)
         hist = typed.Dict.empty(
-            key_type=nb.typeof(np.array(['a' * 200])[0]),
+            key_type=types.int64,
             value_type=types.int64,
         )
         hist[pos.str] = 1
@@ -591,3 +618,4 @@ def timeit():
 
 if __name__ == '__main__':
     timeit()
+
