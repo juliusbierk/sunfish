@@ -183,11 +183,6 @@ def zhash_full(board, score, wc, bc, ep, kp):
 
 board_idx = np.arange(len(initial))
 
-@njit
-def put(board, i, p):
-    board[i] = p
-    return board
-
 
 @njit
 def iswhite(p):
@@ -291,8 +286,8 @@ class Position:
         wc, bc, ep, kp = self.wc, self.bc, 0, 0
         score = self.score + self.value(move, pst)
         # Actual move
-        board = put(board, j, board[i])
-        board = put(board, i, EMPTY)
+        board[j] = board[i]
+        board[i] = EMPTY
         # Castling rights, we move the rook or capture the opponent's
         if i == A1: wc = (False, wc[1])
         if i == H1: wc = (wc[0], False)
@@ -303,16 +298,16 @@ class Position:
             wc = (False, False)
             if abs(j-i) == 2:
                 kp = (i+j)//2
-                board = put(board, A1 if j < i else H1, EMPTY)
-                board = put(board, kp, ROOK)
+                board[A1 if j < i else H1] = EMPTY
+                board[kp] = ROOK
         # Pawn promotion, double move and en passant capture
         if p == PAWN:
             if A8 <= j <= H8:
-                board = put(board, j, QUEEN)
+                board[j] = QUEEN
             if j - i == 2*N:
                 ep = i + N
             if j == self.ep:
-                board = put(board, j+S, EMPTY)
+                board[j + S] = EMPTY
         # We rotate the returned position, so it's ready for the next player
         return Position(board, score, wc, bc, ep, kp).rotate()
 
