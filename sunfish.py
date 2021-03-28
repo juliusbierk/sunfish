@@ -461,7 +461,7 @@ def timeit():
             i = 0
             for _, move, score in searcher.search(hist[-1], hist):
                 i += 1
-                if i == 3:
+                if i == 2:
                     break
 
             if score == MATE_UPPER:
