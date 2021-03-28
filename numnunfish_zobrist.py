@@ -154,7 +154,7 @@ QS_LIMIT = 219
 EVAL_ROUGHNESS = 13
 DRAW_TEST = True
 
-zobrist = np.random.randint(np.iinfo(np.int64).min, np.iinfo(np.int64).max, size=(len(initial), BLACK_KING), dtype=np.int64)
+zobrist = np.random.randint(np.iinfo(np.int64).min, np.iinfo(np.int64).max, size=(len(initial), BLACK_KING + 1), dtype=np.int64)
 
 @njit
 def zhash(board):
@@ -162,15 +162,14 @@ def zhash(board):
     for i in range(21, 100):
         p = board[i]
         if p >= PAWN:
-            h = np.bitwise_xor(h, zobrist[i - 21, p - PAWN])
+            h = np.bitwise_xor(h, zobrist[i, p])
     return h
 
 
 zobrist_score = np.random.randint(np.iinfo(np.int64).min, np.iinfo(np.int64).max - 1, size=4 * MATE_UPPER, dtype=np.int64)
 zobrist_extra = np.random.randint(np.iinfo(np.int64).min, np.iinfo(np.int64).max - 1, size=1000, dtype=np.int64)
 @njit
-def zhash_full(board, score, wc, bc, ep, kp):
-    h = zhash(board)
+def zhash_full(h, score, wc, bc, ep, kp):
     h = np.bitwise_xor(h, zobrist_score[MATE_UPPER + int(score) + 1])
     h = np.bitwise_xor(h, zobrist_extra[int(wc[0])])
     h = np.bitwise_xor(h, zobrist_extra[100 + int(wc[1])])
@@ -209,7 +208,10 @@ def swapwhiteblack(board):
     ('wc', nb.typeof((1, 0))),
     ('bc', nb.typeof((1, 0))),
     ('ep', types.int64),
-    ('kp', types.int64)
+    ('kp', types.int64),
+    ('z', types.int64),
+    ('zr', types.int64),
+    ('r', types.int64),
 ])
 class Position:
     """ A state of a chess game
@@ -219,22 +221,29 @@ class Position:
     bc -- the opponent castling rights, [west/king side, east/queen side]
     ep - the en passant square
     kp - the king passant square
+    z - Zobrist hash
+    r - if rotated
+
     """
 
-    def __init__(self, board, score, wc, bc, ep, kp):
+    def __init__(self, board, score, wc, bc, ep, kp, z=None, r=None):
         self.board = board
         self.score = int(score)
         self.wc = wc
         self.bc = bc
         self.ep = int(ep)
         self.kp = int(kp)
+        if z is None:
+            self.z = zhash(self.board)
+            self.r = 0
+        else:
+            self.z = z
+            self.r = r
 
-    def string_board(self):
-        return "".join([str(x) for x in self.board])
 
     @property
     def str(self):
-        return zhash_full(self.board, self.score, self.wc, self.bc, self.ep, self.kp)
+        return zhash_full(self.z, self.score, self.wc, self.bc, self.ep, self.kp)
 
 
     def gen_moves(self, directions):
@@ -271,22 +280,35 @@ class Position:
         return Position(
             swapwhiteblack(self.board[::-1]), -self.score, self.bc, self.wc,
             119-self.ep if self.ep else 0,
-            119-self.kp if self.kp else 0)
+            119-self.kp if self.kp else 0, self.z, 1 - self.r)
 
     def nullmove(self):
         ''' Like rotate, but clears ep and kp '''
         return Position(
             swapwhiteblack(self.board[::-1]), -self.score,
-            self.bc, self.wc, 0, 0)
+            self.bc, self.wc, 0, 0, self.z, 1 - self.r)
+
+    def update_z(self, board, i, j):
+        self.z = np.bitwise_xor(self.z, zobrist[i, board[i]])
+        self.z = np.bitwise_xor(self.z, zobrist[j, board[i]])
+
 
     def move(self, move, pst):
         i, j = move
         p, q = self.board[i], self.board[j]
         # Copy variables and reset ep and kp
         board = self.board.copy()
+        z = self.z
+        r = self.r
         wc, bc, ep, kp = self.wc, self.bc, 0, 0
         score = self.score + self.value(move, pst)
         # Actual move
+        if r:
+            z = np.bitwise_xor(z, zobrist[120 - i, board[i]])
+            z = np.bitwise_xor(z, zobrist[120 - j, board[i]])
+        else:
+            z = np.bitwise_xor(z, zobrist[i, board[i]])
+            z = np.bitwise_xor(z, zobrist[j, board[i]])
         board[j] = board[i]
         board[i] = EMPTY
         # Castling rights, we move the rook or capture the opponent's
@@ -299,18 +321,34 @@ class Position:
             wc = (False, False)
             if abs(j-i) == 2:
                 kp = (i+j)//2
+                if r:
+                    z = np.bitwise_xor(z, zobrist[A1 if j < i else H1, board[A1 if j < i else H1]])
+                    z = np.bitwise_xor(z, zobrist[kp, ROOK])
+                else:
+                    z = np.bitwise_xor(z, zobrist[120 - (A1 if j < i else H1), board[A1 if j < i else H1]])
+                    z = np.bitwise_xor(z, zobrist[120 - kp, ROOK])
                 board[A1 if j < i else H1] = EMPTY
                 board[kp] = ROOK
         # Pawn promotion, double move and en passant capture
         if p == PAWN:
             if A8 <= j <= H8:
+                if r:
+                    z = np.bitwise_xor(z, zobrist[120 - j, PAWN])
+                    z = np.bitwise_xor(z, zobrist[120 - j, QUEEN])
+                else:
+                    z = np.bitwise_xor(z, zobrist[j, PAWN])
+                    z = np.bitwise_xor(z, zobrist[j, QUEEN])
                 board[j] = QUEEN
             if j - i == 2*N:
                 ep = i + N
             if j == self.ep:
+                if r:
+                    z = np.bitwise_xor(self.z, zobrist[j + S, board[j + S]])
+                else:
+                    z = np.bitwise_xor(self.z, zobrist[120 - (j + S), board[j + S]])
                 board[j + S] = EMPTY
         # We rotate the returned position, so it's ready for the next player
-        return Position(board, score, wc, bc, ep, kp).rotate()
+        return Position(board, score, wc, bc, ep, kp, z, r).rotate()
 
     def value(self, move, pst):
         i, j = move
