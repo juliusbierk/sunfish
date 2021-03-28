@@ -1,7 +1,7 @@
 #!/usr/bin/env pypy
 # -*- coding: utf-8 -*-
 import os
-# os.environ['NUMBA_DISABLE_JIT'] = "1"
+os.environ['NUMBA_DISABLE_JIT'] = "1"
 import time
 from collections import namedtuple
 from numba import njit, typed
@@ -186,7 +186,7 @@ board_idx = np.arange(len(initial))
 
 @njit
 def iswhite(p):
-    return PAWN <= p <= KING
+    return PAWN <= p and p <= KING
 
 
 @njit
@@ -241,7 +241,8 @@ class Position:
         # For each of our pieces, iterate through each possible 'ray' of moves,
         # as defined in the 'directions' map. The rays are broken e.g. by
         # captures or immediately in case of pieces such as knights.
-        for i, p in enumerate(self.board):
+        for i in range(21, 100):
+            p = self.board[i]
             if not iswhite(p): continue
             for d in directions[p]:
                 if d == STOP:
@@ -567,7 +568,7 @@ def print_pos(pos):
 
 def timeit():
     moves2 = [(84, 64), (85, 65), (97, 76), (97, 76), (92, 73), (92, 73), (93, 66), (96, 63), (76, 55), (76, 64), (66, 55), (73, 54), (86, 76), (54, 46), (82, 73), (84, 74), (85, 75), (95, 51), (87, 77), (51, 84), (96, 52), (86, 76), (52, 74), (83, 73), (74, 56), (74, 63), (55, 66), (82, 62), (66, 57), (73, 62), (94, 74), (84, 83), (95, 97), (94, 96), (91, 94), (96, 97), (96, 95), (93, 82), (88, 78), (91, 94), (81, 71), (88, 78), (71, 61), (81, 71), (61, 51), (71, 61), (74, 85), (82, 73), (85, 74), (83, 72), (74, 85), (73, 82), (85, 74), (72, 74), (74, 85), (82, 73), (85, 74), (74, 85), (74, 85), (85, 86), (85, 86), (86, 68), (86, 84), (68, 38), (84, 74), (38, 37), (74, 56), (95, 75), (56, 47), (75, 74), (47, 74), (61, 51), (77, 68), (62, 51), (94, 92), (94, 92), (97, 98), (37, 38), (92, 42), (92, 42), (74, 56), (74, 75), (95, 94), (97, 88), (94, 92), (88, 98), (42, 32), (38, 56)]
-    sdepth = 3
+    sdepth = 2
     for run in range(2):
         if run == 0:
             print('Run 1, with jitting:')
